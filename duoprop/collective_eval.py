@@ -15,76 +15,11 @@ import subprocess
 
 import torch
 
-from duoprop.reason import Reasoner, evaluate, load_cache, load_split
+from duoprop.aggregation import AggReasoner
+from duoprop.neighbours import knn, profiles
+from duoprop.reason import evaluate, load_cache, load_split
 
 DS = {'FB15k-237-betae': 'fb237', 'FB15k-betae': 'fb15k', 'NELL-betae': 'nell'}
-
-
-class AggReasoner(Reasoner):
-    def __init__(self, *a, mode='max', lam=1.0, p=2.0, **kw):
-        super().__init__(*a, **kw)
-        self.mode, self.lam, self.p = mode, lam, p
-
-    def project(self, T, r, mats=None):
-        mats = self.cur if mats is None else mats
-        rows = torch.nonzero(T > 0, as_tuple=True)[0]
-        out = torch.zeros(self.n, device=self.dev)
-        if len(rows) == 0:
-            return out
-        pos, col, val = mats[r].gather(rows)
-        x = T[rows][pos] * val
-        out.scatter_reduce_(0, col, x, reduce='amax', include_self=True)
-        if self.mode == 'max' or len(rows) == 1:
-            return out
-        if self.mode == 'nor':
-            s = torch.zeros(self.n, device=self.dev).scatter_add_(0, col, torch.log1p(-x.clamp(max=1 - 1e-6)))
-            return out + self.lam * ((1 - torch.exp(s)) - out)
-        s = torch.zeros(self.n, device=self.dev).scatter_add_(0, col, x.pow(self.p))
-        return s.pow(1 / self.p).clamp(max=1.0)
-
-
-def triples(data):
-    for line in open(os.path.join(data, 'train.txt')):
-        yield map(int, line.split())
-
-
-def profiles(data, n, nrel, kind, dim=1 << 16):
-    if kind == 'ent':
-        P = torch.zeros(n, n, device='cuda')
-        for h, r, t in triples(data):
-            P[h, t] = 1.0
-        P = ((P + P.t()) > 0).float()
-    elif kind == 'rel':
-        P = torch.zeros(n, dim, device='cuda', dtype=torch.half)
-        hs, fs = [], []
-        for h, r, t in triples(data):  # train.txt contains both directions
-            hs.append(h)
-            fs.append((r * 1000003 + t * 7919) % dim)
-        P.index_put_((torch.tensor(hs, device='cuda'), torch.tensor(fs, device='cuda')),
-                     torch.ones(len(hs), device='cuda', dtype=torch.half))
-    else:
-        P = torch.zeros(n, nrel, device='cuda')
-        for h, r, t in triples(data):
-            P[h, r] += 1.0
-        P = torch.log1p(P)
-    df = sum((P[i:i + 4096] > 0).float().sum(0) for i in range(0, n, 4096))  # chunked: a full bool sum is int64
-    idf = torch.log((n + 1) / (df + 1)).to(P.dtype)
-    P *= idf
-    norm = torch.cat([P[i:i + 4096].float().norm(dim=1) for i in range(0, n, 4096)])
-    P /= norm.clamp(min=1e-12).to(P.dtype).unsqueeze(1)
-    return P.half()
-
-
-def knn(P, k, block=2048):
-    n = P.shape[0]
-    nbr = torch.empty(n, k, dtype=torch.long, device='cuda')
-    val = torch.empty(n, k, device='cuda')
-    for s0 in range(0, n, block):
-        G = (P[s0:s0 + block] @ P.t()).float()
-        G[torch.arange(G.shape[0]), torch.arange(s0, s0 + G.shape[0])] = 0
-        v, i = G.topk(k, dim=1)
-        nbr[s0:s0 + len(v)], val[s0:s0 + len(v)] = i, v.clamp(min=0)
-    return nbr, val
 
 
 class CollReasoner(AggReasoner):
