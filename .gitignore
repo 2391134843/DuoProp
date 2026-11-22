@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+cache/
+data/*
+!data/README.md
+runs/
+logs/
+*.pt
+*.pth
+*.model
+*.npz
+third_party/QTO*/
+third_party/FIT*/
+third_party/CKGC*/
