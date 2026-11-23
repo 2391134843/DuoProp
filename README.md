@@ -143,6 +143,3 @@ After the modules were renamed for this release, step 4 was re-run on the FB15k-
 
 Checkpoints, truth-matrix caches (about 0.9 TB in our runs), the datasets, and the code of QTO, FIT and CKGC; please use their official repositories. `tools/fit_run.py` reads the FIT code and its EFO-1 data from the directory in the environment variable `FIT_DIR` (see its docstring for the one-line change to FIT).
 
-## Licence
-
-The code is released under the MIT licence (`LICENSE`); `third_party/sphere/` keeps its own licence.
